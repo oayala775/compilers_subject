@@ -53,7 +53,7 @@ class StrictLexicalAnalyzer:
             self.correct_tokens.append(keyword)
             # Check if next to a keyword is a valid var name
             if not self.is_valid_var_name(tokens[0]):
-                self.errors.append(f"Nombre de variable inválido en línea {line_num}: {tokens[0]}")
+                self.errors.append(f"Línea {line_num}: Nombre de variable inválido {tokens[0]}")
                 # return False
             var_name: str = tokens.pop(0)
             self.correct_tokens.append(var_name)
@@ -61,12 +61,12 @@ class StrictLexicalAnalyzer:
             # Check if next to a var name is the 'be a' syntax
             match_be = re.fullmatch('be', tokens[0])
             if not match_be:
-                self.errors.append(f"Sentencia de asignación incompleta en línea {line_num}")
+                self.errors.append(f"Línea {line_num}: Sentencia de asignación incompleta en línea.")
                 # return False
             tokens.pop(0)
             match_a = re.fullmatch('a', tokens[0])
             if not match_a:
-                self.errors.append(f"Sentencia de asignación incompleta en línea {line_num}")
+                self.errors.append(f"Línea {line_num}: Sentencia de asignación incompleta")
                 # return False
             tokens.pop(0)
             self.correct_tokens.append("be a")
@@ -86,7 +86,7 @@ class StrictLexicalAnalyzer:
                         return
                 # If semicolon can't be found then it's an error
                 else: 
-                    self.errors.append(f"No se encontró caracter de fin de línea ';' en la línea {line_num}")
+                    self.errors.append(f"Línea {line_num}: No se encontró caracter de fin de línea ';'")
                     # return False
             # If a valid data type is found it's then added to the results
             type: str = tokens.pop(0)
@@ -96,7 +96,7 @@ class StrictLexicalAnalyzer:
             if tokens[0] == '=':
                 match_eq = re.match('=', tokens[0])
                 if not match_eq:
-                    self.errors.append(f"No se encontró asignación en la línea {line_num}")
+                    self.errors.append(f"Línea {line_num}: No se encontró asignación")
                     # return False
                 tokens.pop(0)
                 self.correct_tokens.append("=")
@@ -104,14 +104,14 @@ class StrictLexicalAnalyzer:
                 # Searches for semicolon
                 match_semicolon = re.match(r'^.*;$', tokens[0])
                 if not match_semicolon:
-                    self.errors.append(f"No se encontró caracter de fin de línea ';' en la línea {line_num}")
+                    self.errors.append(f"Línea {line_num}: No se encontró caracter de fin de línea ';'")
                     # return False
                 # if semicolon is found then it's splitted and then obtained the assignation value
                 separated_lines = match_semicolon.group(0).split(';')
                 assignation_value = separated_lines[0]
                 was_assignation_correct: bool = self.check_correct_assignation(type, assignation_value)
                 if not was_assignation_correct:
-                    self.errors.append(f"El tipo de dato y su valor no son correspondientes, en línea {line_num}")
+                    self.errors.append(f"Línea {line_num}: El tipo de dato y su valor no son correspondientes")
                     # return False
                 tokens.pop(0)
                 self.correct_tokens.append(assignation_value)
