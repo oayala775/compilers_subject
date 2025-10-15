@@ -110,7 +110,7 @@ if (edad >= 18) {
 
         # Área de errores
         self.errors_text = scrolledtext.ScrolledText(errors_frame, width=50, height=15,
-                                                     font=("Consolas", 9))
+                                                     font=("Consolas", 9), state='disabled')
         self.errors_text.pack(fill='both', expand=True)
 
     def compile(self):
@@ -121,6 +121,7 @@ if (edad >= 18) {
         for item in self.tokens_table.get_children():
             self.tokens_table.delete(item)
 
+        self.errors_text.config(state='normal')
         self.errors_text.delete('1.0', tk.END)
         self.window.update_idletasks()
 
@@ -146,6 +147,8 @@ if (edad >= 18) {
                 'end', '✓ No se encontraron errores léxicos. El código es válido.', 'success')
             self.errors_text.tag_configure(
                 'success', foreground='green', font=("Arial", 10, "bold"))
+            
+        self.errors_text.config(state='disabled')
         tokens.clear()
         errors.clear()
             

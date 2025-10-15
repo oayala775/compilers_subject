@@ -29,7 +29,7 @@ class StrictLexicalAnalyzer:
         # Otra forma de realizar la sentencia de regex completa
         # self.master_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in self.token_rules)
         
-        for line_num, line in enumerate(code.splitlines(), 1):
+        for line_num, line in enumerate(code.splitlines(), 0):
             for match in re.finditer(self.master_regex, line):
                 token_type = match.lastgroup
                 token_value = match.group()
