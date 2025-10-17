@@ -147,7 +147,7 @@ if (edad >= 18) {
                 'end', '✓ No se encontraron errores léxicos. El código es válido.', 'success')
             self.errors_text.tag_configure(
                 'success', foreground='green', font=("Arial", 10, "bold"))
-            
+            3
         self.errors_text.config(state='disabled')
         tokens.clear()
         errors.clear()

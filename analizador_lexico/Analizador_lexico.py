@@ -12,13 +12,13 @@ class StrictLexicalAnalyzer:
             ('TYPE',          r'\b(Gem|Shimmer|Truth_potion|Letter|Story|Collection|Ensemble)\b'),
             ('BOOLEAN',       r'\b(sparkle_on|sparkle_off)\b'),
             ('SHIMMER',       r'[+-]?\d+\.\d+'),      # Verificación de floats antes que enteros
+            ('IDENTIFIER',    r'^[a-zA-Z][a-zA-Z0-9]*$'), # Identifiers
             ('GEM',           r'[+-]?\d+'),           # Integers
             ('STORY',         r'"[^"]*"'),           # Strings
             ('LETTER',        r'\'[^\']\''),          # Chars
-            ('IDENTIFIER',    r'[a-zA-Z][a-zA-Z0-9]*'), # Identifiers
             ('MULTI_OP',      r'<=|>='),               # Multi-char operators
             ('OPERATOR',      r'[=+\-*/%<>]'),          # Single-char operators
-            ('DELIMITER',     r'[(){}\[\];,:.]'),
+            ('DELIMITER',     r'[(){}\[\];,:]'),
             ('WHITESPACE',    r'\s+'),
             ('MISMATCH',      r'.'),                  # Un comodín para cualquier otro carácter
         ]
