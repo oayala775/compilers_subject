@@ -1,0 +1,62 @@
+[
+  {
+    "identificador": "decimal2",
+    "categoria_lexica": "VARIABLE",
+    "tipo_dato": "Shimmer",
+    "ambito": "global",
+    "direccion_memoria": 4,
+    "linea_declaracion": 9,
+    "valor": "expresion",
+    "estado": "DECLARADA",
+    "informacion_estructura": null,
+    "contador_referencias": 0
+  },
+  {
+    "identificador": "edad",
+    "categoria_lexica": "VARIABLE",
+    "tipo_dato": "Gem",
+    "ambito": "global",
+    "direccion_memoria": 8,
+    "linea_declaracion": 21,
+    "valor": "expresion",
+    "estado": "DECLARADA",
+    "informacion_estructura": null,
+    "contador_referencias": 1
+  },
+  {
+    "identificador": "precio",
+    "categoria_lexica": "VARIABLE",
+    "tipo_dato": "Shimmer",
+    "ambito": "global",
+    "direccion_memoria": 12,
+    "linea_declaracion": 22,
+    "valor": "expresion",
+    "estado": "DECLARADA",
+    "informacion_estructura": null,
+    "contador_referencias": 0
+  },
+  {
+    "identificador": "activo",
+    "categoria_lexica": "VARIABLE",
+    "tipo_dato": "Truth_potion",
+    "ambito": "global",
+    "direccion_memoria": 16,
+    "linea_declaracion": 23,
+    "valor": "expresion",
+    "estado": "DECLARADA",
+    "informacion_estructura": null,
+    "contador_referencias": 0
+  },
+  {
+    "identificador": "nombre",
+    "categoria_lexica": "VARIABLE",
+    "tipo_dato": "Letter",
+    "ambito": "global",
+    "direccion_memoria": 20,
+    "linea_declaracion": 24,
+    "valor": "expresion",
+    "estado": "DECLARADA",
+    "informacion_estructura": null,
+    "contador_referencias": 0
+  }
+]
