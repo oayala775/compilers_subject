@@ -1,6 +1,6 @@
 from tkinter import ttk, scrolledtext
 import tkinter as tk
-from analizador_lexico import StrictLexicalAnalyzer
+from Analizador_lexico import StrictLexicalAnalyzer
 from analizador_sintactico import Parser, ASTNode
 
 class CompactCompilerGUI:
