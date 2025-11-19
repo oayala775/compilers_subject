@@ -33,13 +33,15 @@ class StrictLexicalAnalyzer:
             for match in re.finditer(self.master_regex, line):
                 token_type = match.lastgroup
                 token_value = match.group()
+                start_column = match.start() + 1  # +1 porque las columnas empiezan en 1, no en 0
 
                 if token_type == 'WHITESPACE' or token_type == 'COMMENT':
                     continue  
                 
                 if token_type == 'MISMATCH':
-                    self.errors.append(f"Línea {line_num}: Carácter inesperado '{token_value}'")
+                    self.errors.append(f"Línea {line_num}, columna {start_column}: Carácter inesperado '{token_value}'")
                 else:
-                    self.symbols_table.append((line_num, token_value, token_type))
+                    # Guardar (línea, columna, token, tipo)
+                    self.symbols_table.append((line_num, start_column, token_value, token_type))
 
         return self.symbols_table, self.errors

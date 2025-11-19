@@ -3,11 +3,12 @@ import os
 
 class ASTNode:
     """Nodo del Árbol de Análisis Sintáctico"""
-    def __init__(self, tipo, valor=None, hijos=None, linea=None):
+    def __init__(self, tipo, valor=None, hijos=None, linea=None, columna=None):
         self.tipo = tipo
         self.valor = valor
         self.hijos = hijos if hijos is not None else []
         self.linea = linea
+        self.columna = columna
     
     def agregar_hijo(self, hijo):
         self.hijos.append(hijo)
@@ -18,15 +19,17 @@ class ASTNode:
             'tipo': self.tipo,
             'valor': self.valor,
             'linea': self.linea,
+            'columna': self.columna,
             'hijos': [hijo.to_dict() for hijo in self.hijos]
         }
 
 class SymbolTable:
-    def __init__(self, max_memory_bytes=100):
+    def __init__(self, max_memory_bytes=1000):
         self.max_memory_bytes = max_memory_bytes
         self.memory_table = []
         self.file_storage = "symbol_table.json"
         self.current_memory_usage = 0
+        self.next_memory_address = 0
         
     def calculate_symbol_size(self, symbol):
         """Calcula el tamaño aproximado en bytes de un símbolo"""
@@ -38,8 +41,12 @@ class SymbolTable:
                 size += 4
             elif isinstance(field, float):
                 size += 8
+            elif isinstance(field, bool):
+                size += 1
             elif field is None:
                 size += 1
+            elif isinstance(field, list) or isinstance(field, dict):
+                size += len(str(field).encode('utf-8'))
         return size
     
     def add_symbol(self, symbol_data):
@@ -120,8 +127,15 @@ class SymbolTable:
         """Limpia la tabla de símbolos"""
         self.memory_table.clear()
         self.current_memory_usage = 0
+        self.next_memory_address = 0
         if os.path.exists(self.file_storage):
             os.remove(self.file_storage)
+    
+    def get_next_memory_address(self, size):
+        """Obtiene la siguiente dirección de memoria disponible"""
+        address = self.next_memory_address
+        self.next_memory_address += size
+        return address
 
 class Parser:
     def __init__(self, tokens):
@@ -130,9 +144,19 @@ class Parser:
         self.errors = []
         self.symbol_table = SymbolTable()
         self.current_scope = "global"
-        self.memory_address_counter = 0
-        self.ast = None  # Árbol de Análisis Sintáctico
-    
+        self.ast = None
+        
+        # Contadores para tipos de datos
+        self.type_sizes = {
+            'Gem': 4,        # int - 4 bytes
+            'Shimmer': 8,    # float - 8 bytes  
+            'Truth_potion': 1, # boolean - 1 byte
+            'Letter': 2,     # char - 2 bytes (UTF-16)
+            'Story': 256,    # string - 256 bytes por defecto
+            'Collection': 64, # array - 64 bytes base
+            'Ensemble': 128  # struct - 128 bytes base
+        }
+
     def current_token(self):
         if self.current_token_index < len(self.tokens):
             return self.tokens[self.current_token_index]
@@ -147,15 +171,21 @@ class Parser:
         if not token:
             return False
         
-        if token[2] == expected_type and (expected_value is None or token[1] == expected_value):
+        # token[3] es el tipo, token[2] es el valor
+        if token[3] == expected_type and (expected_value is None or token[2] == expected_value):
             self.next_token()
             return True
         return False
     
     def error(self, message, expected=None):
         token = self.current_token()
-        line = token[0] if token else "?"
-        column = "?"  # No tenemos información de columna en el lexer actual
+        if token:
+            line = token[0]
+            column = token[1]
+        else:
+            line = "?"
+            column = "?"
+        
         error_msg = f"Error sintáctico en línea {line}, columna {column}: {message}"
         if expected:
             error_msg += f". Se esperaba {expected}."
@@ -168,7 +198,7 @@ class Parser:
         """Recuperación de errores: salta tokens hasta encontrar un sincronizador"""
         sync_tokens = [';', '}', '{']
         while self.current_token():
-            if self.current_token()[1] in sync_tokens:
+            if self.current_token()[2] in sync_tokens:
                 return
             self.next_token()
     
@@ -176,6 +206,10 @@ class Parser:
         """Análisis sintáctico principal"""
         self.errors.clear()
         self.symbol_table.clear()
+        
+        # Agregar todos los tokens a la tabla de símbolos
+        for token in self.tokens:
+            self._add_token_to_symbol_table(token)
         
         # Crear nodo raíz del AST
         self.ast = ASTNode('PROGRAMA')
@@ -199,15 +233,140 @@ class Parser:
         
         return self.errors
     
+    def _add_token_to_symbol_table(self, token):
+        """Agrega un token a la tabla de símbolos con información semántica completa"""
+        token_type = token[3]
+        token_value = token[2]
+        
+        # Solo agregar identificadores, tipos y literales relevantes
+        if token_type not in ['IDENTIFIER', 'TYPE', 'GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
+            return
+        
+        # No agregar palabras clave como identificadores
+        if token_value in ['let', 'be', 'a', 'forever', 'if', 'or', 'and', 'not', 'is', 'is_not']:
+            return
+        
+        # Determinar información semántica básica
+        categoria_lexica = token_type
+        tipo_dato = self._get_data_type_for_token(token)
+        tamano_memoria = self.type_sizes.get(tipo_dato, 4)
+        direccion_memoria = self.symbol_table.get_next_memory_address(tamano_memoria)
+        
+        # Información semántica extendida
+        symbol_data = {
+            # Información básica del identificador
+            'identificador': token_value,
+            'categoria_lexica': categoria_lexica,
+            'tipo_dato': tipo_dato,
+            'ambito': self.current_scope,
+            'linea_declaracion': token[0],
+            'estado': 'DECLARADO',
+            'contador_referencias': 0,
+            
+            # Información de memoria
+            'tamano_memoria': tamano_memoria,
+            'direccion_memoria': direccion_memoria,
+            'direccion_relativa': direccion_memoria,
+            
+            # Estado de inicialización
+            'inicializado': False,
+            'valor_inicial': None,
+            
+            # Para variables
+            'es_variable': categoria_lexica == 'IDENTIFIER',
+            'es_constante': False,
+            'modificable': True,
+            'visibilidad': 'publico',
+            
+            # Para funciones (inicializado para posibles funciones futuras)
+            'es_funcion': False,
+            'firma_funcion': None,
+            'lista_parametros': [],
+            'tipo_retorno': None,
+            'variables_locales': [],
+            'implementada': False,
+            'parametros_detallados': [],
+            
+            # Para tipos definidos por el usuario
+            'es_tipo_usuario': token_type == 'TYPE' and token_value in ['Collection', 'Ensemble'],
+            'estructura_interna': None,
+            'metodos_asociados': [],
+            'jerarquia_herencia': [],
+            'restricciones_aplicables': [],
+            
+            # Información adicional
+            'valor_actual': self._get_value_for_token(token),
+            'informacion_estructura': None,
+            'alcance_temporal': 'programa',
+            'categoria_semantica': self._get_semantic_category(token),
+            'nivel_anidamiento': 0,
+            'bloque_pertenencia': self.current_scope
+        }
+        
+        # Ajustes específicos por tipo de token
+        if token_type in ['GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
+            symbol_data.update({
+                'es_constante': True,
+                'modificable': False,
+                'inicializado': True,
+                'valor_inicial': token_value,
+                'categoria_semantica': 'LITERAL'
+            })
+        elif token_type == 'TYPE':
+            symbol_data.update({
+                'es_tipo_usuario': True,
+                'categoria_semantica': 'TIPO_DATO'
+            })
+        
+        self.symbol_table.add_symbol(symbol_data)
+    
+    def _get_semantic_category(self, token):
+        """Determina la categoría semántica del token"""
+        token_type = token[3]
+        if token_type == 'IDENTIFIER':
+            return 'VARIABLE'
+        elif token_type == 'TYPE':
+            return 'TIPO_DATO'
+        elif token_type in ['GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
+            return 'LITERAL'
+        else:
+            return 'DESCONOCIDO'
+    
+    def _get_data_type_for_token(self, token):
+        """Determina el tipo de dato basado en el tipo de token"""
+        token_type = token[3]
+        if token_type == 'GEM':
+            return 'Gem'
+        elif token_type == 'SHIMMER':
+            return 'Shimmer'
+        elif token_type == 'BOOLEAN':
+            return 'Truth_potion'
+        elif token_type == 'LETTER':
+            return 'Letter'
+        elif token_type == 'STORY':
+            return 'Story'
+        elif token_type == 'TYPE':
+            return token[2]
+        else:
+            return 'Desconocido'
+    
+    def _get_value_for_token(self, token):
+        """Obtiene el valor para el token"""
+        token_type = token[3]
+        if token_type in ['GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
+            return token[2]
+        else:
+            return None
+    
     def declaracion(self):
         """<declaracion_variable> | <declaracion_constante>"""
         token = self.current_token()
         if not token:
             return None
         
-        if token[1] == 'let':
+        if token[2] == 'let':
             return self.declaracion_variable()
-        elif token[1] == 'forever':
+        elif token[2] == 'forever':
             return self.declaracion_constante()
         
         return None
@@ -215,7 +374,8 @@ class Parser:
     def declaracion_variable(self):
         """<declaracion_variable> ::= "let" <identificador> "be" "a" <tipo> ( "=" <expresion> )? ";" """
         start_index = self.current_token_index
-        node = ASTNode('DECLARACION_VARIABLE', linea=self.current_token()[0] if self.current_token() else None)
+        token = self.current_token()
+        node = ASTNode('DECLARACION_VARIABLE', linea=token[0] if token else None, columna=token[1] if token else None)
         
         if not self.expect('KEYWORD', 'let'):
             return None
@@ -226,8 +386,8 @@ class Parser:
             self.error("Se esperaba un identificador")
             return None
         
-        identifier = ident_token[1]
-        node.agregar_hijo(ASTNode('IDENTIFICADOR', identifier, linea=ident_token[0]))
+        identifier = ident_token[2]
+        node.agregar_hijo(ASTNode('IDENTIFICADOR', identifier, linea=ident_token[0], columna=ident_token[1]))
         
         if not self.expect('KEYWORD', 'be'):
             self.error("Se esperaba 'be'")
@@ -243,44 +403,41 @@ class Parser:
             self.error("Se esperaba un tipo de dato")
             return None
         
-        data_type = type_token[1]
-        node.agregar_hijo(ASTNode('TIPO', data_type, linea=type_token[0]))
+        data_type = type_token[2]
+        node.agregar_hijo(ASTNode('TIPO', data_type, linea=type_token[0], columna=type_token[1]))
+        
+        # Actualizar información semántica en tabla de símbolos
+        symbol = self.symbol_table.search_symbol(identifier, self.current_scope)
+        if symbol:
+            symbol.update({
+                'tipo_dato': data_type,
+                'tamano_memoria': self.type_sizes.get(data_type, 4),
+                'es_variable': True,
+                'es_constante': False,
+                'modificable': True,
+                'categoria_semantica': 'VARIABLE'
+            })
         
         # Asignación opcional
-        value = None
         if self.expect('OPERATOR', '='):
             expr_node = self.expresion()
             if expr_node:
                 node.agregar_hijo(ASTNode('ASIGNACION', hijos=[expr_node]))
-                value = "expresion"  # Placeholder para el valor
+                # Marcar como inicializado
+                if symbol:
+                    symbol['inicializado'] = True
+                    symbol['valor_inicial'] = "expresion"
         
         if not self.expect('DELIMITER', ';'):
             self.error("Se esperaba ';'")
             return None
         
-        # Agregar a tabla de símbolos
-        symbol_data = {
-            'identificador': identifier,
-            'categoria_lexica': 'VARIABLE',
-            'tipo_dato': data_type,
-            'ambito': self.current_scope,
-            'direccion_memoria': self.memory_address_counter,
-            'linea_declaracion': ident_token[0],
-            'valor': value,
-            'estado': 'DECLARADA',
-            'informacion_estructura': None,
-            'contador_referencias': 0
-        }
-        
-        self.symbol_table.add_symbol(symbol_data)
-        self.memory_address_counter += 4  # Asumimos 4 bytes por variable
-        
         return node
     
     def declaracion_constante(self):
         """<declaracion_constante> ::= "forever" <identificador> ("=" <expresion> )? ";" """
-        start_index = self.current_token_index
-        node = ASTNode('DECLARACION_CONSTANTE', linea=self.current_token()[0] if self.current_token() else None)
+        token = self.current_token()
+        node = ASTNode('DECLARACION_CONSTANTE', linea=token[0] if token else None, columna=token[1] if token else None)
         
         if not self.expect('KEYWORD', 'forever'):
             return None
@@ -291,37 +448,34 @@ class Parser:
             self.error("Se esperaba un identificador")
             return None
         
-        identifier = ident_token[1]
-        node.agregar_hijo(ASTNode('IDENTIFICADOR', identifier, linea=ident_token[0]))
+        identifier = ident_token[2]
+        node.agregar_hijo(ASTNode('IDENTIFICADOR', identifier, linea=ident_token[0], columna=ident_token[1]))
         
-        # Asignación opcional
-        value = None
-        if self.expect('OPERATOR', '='):
-            expr_node = self.expresion()
-            if expr_node:
-                node.agregar_hijo(ASTNode('ASIGNACION', hijos=[expr_node]))
-                value = "expresion"  # Placeholder para el valor
+        # Actualizar información semántica en tabla de símbolos
+        symbol = self.symbol_table.search_symbol(identifier, self.current_scope)
+        if symbol:
+            symbol.update({
+                'es_constante': True,
+                'modificable': False,
+                'categoria_semantica': 'CONSTANTE'
+            })
+        
+        # Asignación obligatoria para constantes
+        if not self.expect('OPERATOR', '='):
+            self.error("Las constantes deben tener una asignación inicial")
+            return None
+        
+        expr_node = self.expresion()
+        if expr_node:
+            node.agregar_hijo(ASTNode('ASIGNACION', hijos=[expr_node]))
+            # Marcar como inicializado
+            if symbol:
+                symbol['inicializado'] = True
+                symbol['valor_inicial'] = "expresion_constante"
         
         if not self.expect('DELIMITER', ';'):
             self.error("Se esperaba ';'")
             return None
-        
-        # Agregar a tabla de símbolos
-        symbol_data = {
-            'identificador': identifier,
-            'categoria_lexica': 'CONSTANTE',
-            'tipo_dato': None,  # Se inferirá del valor
-            'ambito': self.current_scope,
-            'direccion_memoria': self.memory_address_counter,
-            'linea_declaracion': ident_token[0],
-            'valor': value,
-            'estado': 'DECLARADA',
-            'informacion_estructura': None,
-            'contador_referencias': 0
-        }
-        
-        self.symbol_table.add_symbol(symbol_data)
-        self.memory_address_counter += 4
         
         return node
     
@@ -331,14 +485,15 @@ class Parser:
         if not token:
             return None
         
-        if token[1] == 'if':
+        if token[2] == 'if':
             return self.sentencia_if()
         
         return None
     
     def sentencia_if(self):
         """<condicional> ::= "if" "(" <expresion> ")" <bloque> ... """
-        node = ASTNode('SENTENCIA_IF', linea=self.current_token()[0] if self.current_token() else None)
+        token = self.current_token()
+        node = ASTNode('SENTENCIA_IF', linea=token[0] if token else None, columna=token[1] if token else None)
         
         if not self.expect('KEYWORD', 'if'):
             return None
@@ -371,17 +526,18 @@ class Parser:
     
     def bloque(self):
         """<bloque> ::= "{" <lista_sentencias> "}" """
-        node = ASTNode('BLOQUE', linea=self.current_token()[0] if self.current_token() else None)
+        token = self.current_token()
+        node = ASTNode('BLOQUE', linea=token[0] if token else None, columna=token[1] if token else None)
         
         if not self.expect('DELIMITER', '{'):
             return None
         
         # Cambiar ámbito
         old_scope = self.current_scope
-        self.current_scope = f"bloque_{self.memory_address_counter}"
+        self.current_scope = f"bloque_{self.symbol_table.next_memory_address}"
         
         # Procesar sentencias dentro del bloque
-        while self.current_token() and self.current_token()[1] != '}':
+        while self.current_token() and self.current_token()[2] != '}':
             declaracion_node = self.declaracion()
             if declaracion_node:
                 node.agregar_hijo(declaracion_node)
@@ -471,7 +627,8 @@ class Parser:
     def factor_logico(self):
         """<factor_logico> ::= "not" <expresion_relacional> | <expresion_relacional>"""
         if self.expect('KEYWORD', 'not'):
-            node = ASTNode('OPERADOR_LOGICO', 'NOT')
+            token = self.current_token()
+            node = ASTNode('OPERADOR_LOGICO', 'NOT', linea=token[0] if token else None, columna=token[1] if token else None)
             expr_node = self.expresion_relacional()
             if expr_node:
                 node.agregar_hijo(expr_node)
@@ -502,9 +659,9 @@ class Parser:
         node = ASTNode('EXPRESION_RELACIONAL_COLA')
         
         token = self.current_token()
-        if token and token[1] in ['<', '>', '<=', '>=', 'is', 'is_not']:
-            operador = token[1]
-            self.next_token()  # Consumir operador relacional
+        if token and token[2] in ['<', '>', '<=', '>=', 'is', 'is_not']:
+            operador = token[2]
+            self.next_token()
             expr_node = self.expresion_aritmetica()
             if expr_node:
                 node.agregar_hijo(ASTNode('OPERADOR_RELACIONAL', operador))
@@ -533,9 +690,9 @@ class Parser:
         """<expresion_aritmetica_cola> ::= <op_suma> <termino> <expresion_aritmetica_cola> | ε"""
         node = ASTNode('EXPRESION_ARITMETICA_COLA')
         
-        while self.current_token() and self.current_token()[1] in ['+', '-']:
-            operador = self.current_token()[1]
-            self.next_token()  # Consumir operador
+        while self.current_token() and self.current_token()[2] in ['+', '-']:
+            operador = self.current_token()[2]
+            self.next_token()
             term_node = self.termino()
             if term_node:
                 node.agregar_hijo(ASTNode('OPERADOR_ARITMETICO', operador))
@@ -565,9 +722,9 @@ class Parser:
         """<termino_cola> ::= <op_multi> <factor> <termino_cola> | ε"""
         node = ASTNode('TERMINO_COLA')
         
-        while self.current_token() and self.current_token()[1] in ['*', '/', '%']:
-            operador = self.current_token()[1]
-            self.next_token()  # Consumir operador
+        while self.current_token() and self.current_token()[2] in ['*', '/', '%']:
+            operador = self.current_token()[2]
+            self.next_token()
             factor_node = self.factor()
             if factor_node:
                 node.agregar_hijo(ASTNode('OPERADOR_ARITMETICO', operador))
@@ -582,12 +739,12 @@ class Parser:
         """<factor> ::= <primario> | <op_unario> <factor>"""
         # Operador unario
         token = self.current_token()
-        if token and token[1] in ['+', '-']:
-            operador = token[1]
+        if token and token[2] in ['+', '-']:
+            operador = token[2]
             self.next_token()
             factor_node = self.factor()
             if factor_node:
-                node = ASTNode('OPERADOR_UNARIO', operador)
+                node = ASTNode('OPERADOR_UNARIO', operador, linea=token[0], columna=token[1])
                 node.agregar_hijo(factor_node)
                 return node
             else:
@@ -603,35 +760,27 @@ class Parser:
             return None
         
         # Literales
-        if token[2] in ['GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
-            node = ASTNode('LITERAL', token[1], linea=token[0])
+        if token[3] in ['GEM', 'SHIMMER', 'BOOLEAN', 'LETTER', 'STORY']:
+            node = ASTNode('LITERAL', token[2], linea=token[0], columna=token[1])
             self.next_token()
             return node
         
         # Identificador
-        elif token[2] == 'IDENTIFIER':
-            # Verificar si el identificador existe en la tabla de símbolos
-            symbol = self.symbol_table.search_symbol(token[1], self.current_scope)
-            if not symbol:
-                # Buscar en ámbito global
-                symbol = self.symbol_table.search_symbol(token[1], "global")
-                if not symbol:
-                    self.error(f"Identificador '{token[1]}' no declarado")
-            
-            node = ASTNode('IDENTIFICADOR', token[1], linea=token[0])
+        elif token[3] == 'IDENTIFIER':
+            node = ASTNode('IDENTIFICADOR', token[2], linea=token[0], columna=token[1])
             self.next_token()
             
             # Llamada a función?
-            if self.current_token() and self.current_token()[1] == '(':
+            if self.current_token() and self.current_token()[2] == '(':
                 llamada_node = self.llamada_funcion()
                 if llamada_node:
-                    llamada_node.hijos.insert(0, node)  # El identificador es el primer hijo
+                    llamada_node.hijos.insert(0, node)
                     return llamada_node
             
             return node
         
         # Paréntesis
-        elif token[1] == '(':
+        elif token[2] == '(':
             self.next_token()
             expr_node = self.expresion()
             if expr_node:
