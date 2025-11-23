@@ -118,6 +118,7 @@ class CompactCompilerGUI:
         test_code = """# CÓDIGO CON MÚLTIPLES OPORTUNIDADES DE OPTIMIZACIÓN
 let x be a Gem = 10;
 let y be a Gem = 20;
+let resultado a Gem = 20;
 let z be a Gem = x + y;
 
 # 1. ASIGNACIONES REDUNDANTES
@@ -179,6 +180,12 @@ forever MAXIMO be a Gem = 100;
 # USO DE CONSTANTES
 let circulo be a Shimmer = PI * 10 * 10;
 share "Área del círculo: " + circulo;
+
+# FUNCION
+charm sumar get_magic_from ( num1 be a Gem, num2 be a Gem ) returns Gem {
+    let resultado be a Gem = num1 + num2;
+    give_back resultado;
+}
 """
 
         self.editor.insert('1.0', test_code)

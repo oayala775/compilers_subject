@@ -364,13 +364,183 @@ class Parser:
         if not token:
             return None
         
-        if token[2] == 'let':
-            return self.declaracion_variable()
-        elif token[2] == 'forever':
-            return self.declaracion_constante()
-        
-        return None
+        match token[2]:
+            case 'let':
+                return self.declaracion_variable()
+            case 'forever':
+                return self.declaracion_constante()
+            case 'charm':
+                return self.declaracion_funcion()
+            case _:
+                return None
+
+        # if token[2] == 'let':
+        # elif token[2] == 'forever':
+        #     return self.declaracion_constante()
+        # elif token[2] == 'charm':
+        #     return self.declaracion_funcion()
     
+    def declaracion_funcion(self):
+            """<decl_funcion> ::= "charm" <id> "get_magic_from" "(" <params> ")" "returns" <tipo> <bloque>"""
+            token = self.current_token()
+            node = ASTNode('DECLARACION_FUNCION', linea=token[0], columna=token[1])
+            
+            # 1. Palabra clave 'charm'
+            if not self.expect('KEYWORD', 'charm'):
+                return None
+                
+            # 2. Identificador de la función
+            ident_token = self.current_token()
+            if not self.expect('IDENTIFIER'):
+                self.error("Se esperaba nombre de la función")
+                return None
+            
+            func_name = ident_token[2]
+            node.agregar_hijo(ASTNode('IDENTIFICADOR', func_name, linea=ident_token[0]))
+
+            # Actualizar símbolo a tipo FUNCION
+            symbol = self.symbol_table.search_symbol(func_name, self.current_scope)
+            if symbol:
+                symbol.update({
+                    'es_funcion': True,
+                    'es_variable': False,
+                    'categoria_semantica': 'FUNCION'
+                })
+
+            # 3. Palabra clave 'get_magic_from' (opcional o mandatoria según diseño, aquí mandatoria)
+            if not self.expect('KEYWORD', 'get_magic_from'):
+                self.error("Se esperaba 'get_magic_from' para definir parámetros")
+                return None
+
+            # 4. Parámetros: "(" ... ")"
+            if not self.expect('DELIMITER', '('):
+                self.error("Se esperaba '('")
+                return None
+                
+            params_node = self.parametros_funcion() # Método definido abajo
+            node.agregar_hijo(params_node)
+            
+            # Guardar parámetros en la tabla de símbolos (para validación semántica futura)
+            if symbol and params_node.hijos:
+                symbol['lista_parametros'] = [p.hijos[1].valor for p in params_node.hijos] # Guardamos los tipos
+
+            if not self.expect('DELIMITER', ')'):
+                self.error("Se esperaba ')'")
+                return None
+
+            # 5. Tipo de retorno: "returns" <tipo>
+            if not self.expect('KEYWORD', 'returns'):
+                self.error("Se esperaba 'returns' y el tipo de dato")
+                return None
+                
+            type_token = self.current_token()
+            if not self.expect('TYPE'):
+                self.error("Se esperaba un tipo de retorno válido")
+                return None
+            
+            return_type = type_token[2]
+            node.agregar_hijo(ASTNode('TIPO_RETORNO', return_type, linea=type_token[0]))
+            
+            if symbol:
+                symbol['tipo_retorno'] = return_type
+
+            # 6. El cuerpo de la función
+            # Importante: Cambiamos el scope ANTES de entrar al bloque para que los params sean locales
+            old_scope = self.current_scope
+            self.current_scope = f"func_{func_name}" 
+            
+            # Reinscribimos los parámetros en el nuevo scope local
+            for param in params_node.hijos:
+                p_name = param.hijos[0].valor
+                p_type = param.hijos[1].valor
+                # Creamos manualmente el símbolo en el scope local
+                self.symbol_table.add_symbol({
+                    'identificador': p_name,
+                    'categoria_lexica': 'IDENTIFIER',
+                    'tipo_dato': p_type,
+                    'ambito': self.current_scope,
+                    'es_variable': True,
+                    'inicializado': True,
+                    'linea_declaracion': token[0],
+                    'estado': 'DECLARADO',
+                    'contador_referencias': 0,
+                    'tamano_memoria': self.type_sizes.get(p_type, 4),
+                    'direccion_memoria': self.symbol_table.get_next_memory_address(self.type_sizes.get(p_type, 4)),
+                    'es_constante': False,
+                    'modificable': True,
+                    'valor_actual': None,
+                    'categoria_semantica': 'PARAMETRO',
+                    'es_funcion': False,
+                    'es_tipo_usuario': False
+                })
+
+            bloque_node = self.bloque()
+            if bloque_node:
+                node.agregar_hijo(bloque_node)
+            
+            # Regresar al scope anterior
+            self.current_scope = old_scope
+            
+            return node
+
+    def parametros_funcion(self):
+        """<parametros> ::= <param> ("," <param>)* | epsilon"""
+        node = ASTNode('PARAMETROS')
+        
+        # Si el siguiente token es ')', no hay parámetros
+        if self.current_token()[2] == ')':
+            return node
+            
+        while True:
+            # Sintaxis de param: "nombre be a Tipo"
+            p_ident = self.current_token()
+            if not self.expect('IDENTIFIER'):
+                self.error("Se esperaba nombre del parámetro")
+                break
+                
+            if not self.expect('KEYWORD', 'be'):
+                self.error("Se esperaba 'be'")
+                break
+            if not self.expect('KEYWORD', 'a'):
+                self.error("Se esperaba 'a'")
+                break
+                
+            p_type = self.current_token()
+            if not self.expect('TYPE'):
+                self.error("Se esperaba tipo del parámetro")
+                break
+                
+            param_node = ASTNode('PARAMETRO')
+            param_node.agregar_hijo(ASTNode('IDENTIFICADOR', p_ident[2]))
+            param_node.agregar_hijo(ASTNode('TIPO', p_type[2]))
+            node.agregar_hijo(param_node)
+            
+            if self.current_token()[2] == ',':
+                self.next_token()
+            else:
+                break
+                
+        return node
+
+    def sentencia_retorno(self):
+        """<retorno> ::= "give_back" <expresion> ";" """
+        token = self.current_token()
+        node = ASTNode('SENTENCIA_RETORNO', linea=token[0], columna=token[1])
+        
+        if not self.expect('KEYWORD', 'give_back'):
+            return None
+            
+        expr = self.expresion()
+        if expr:
+            node.agregar_hijo(expr)
+        else:
+            self.error("Se esperaba una expresión para devolver")
+            
+        if not self.expect('DELIMITER', ';'):
+            self.error("Se esperaba ';'")
+            
+        return node
+
     def declaracion_variable(self):
         """<declaracion_variable> ::= "let" <identificador> "be" "a" <tipo> ( "=" <expresion> )? ";" """
         start_index = self.current_token_index
@@ -407,16 +577,62 @@ class Parser:
         node.agregar_hijo(ASTNode('TIPO', data_type, linea=type_token[0], columna=type_token[1]))
         
         # Actualizar información semántica en tabla de símbolos
-        symbol = self.symbol_table.search_symbol(identifier, self.current_scope)
+        tamano = self.type_sizes.get(data_type, 4)
+
+        # 2. Buscar si ya existe el símbolo EXACTAMENTE en el ámbito actual
+        #    (No usamos search_symbol estándar porque ese busca en los padres/globales)
+        symbol = None
+        for s in self.symbol_table.memory_table:
+            if s['identificador'] == identifier and s['ambito'] == self.current_scope:
+                symbol = s
+                break
+        
         if symbol:
+            # CASO A: Ya existe en este ámbito local (re-declaración o actualización)
             symbol.update({
                 'tipo_dato': data_type,
-                'tamano_memoria': self.type_sizes.get(data_type, 4),
+                'tamano_memoria': tamano,
                 'es_variable': True,
                 'es_constante': False,
                 'modificable': True,
                 'categoria_semantica': 'VARIABLE'
             })
+        else:
+            # CASO B: No existe en este ámbito local (aunque exista en global).
+            # Creamos un NUEVO símbolo local que hace "shadowing" al global.
+            new_symbol_data = {
+                'identificador': identifier,
+                'categoria_lexica': 'IDENTIFIER',
+                'tipo_dato': data_type,
+                'ambito': self.current_scope,     # <--- AQUÍ SE GUARDA EL SCOPE CORRECTO
+                'linea_declaracion': ident_token[0],
+                'estado': 'DECLARADO',
+                'contador_referencias': 0,
+                
+                # Memoria
+                'tamano_memoria': tamano,
+                'direccion_memoria': self.symbol_table.get_next_memory_address(tamano),
+                'direccion_relativa': 0,
+                
+                # Estado
+                'inicializado': False,
+                'valor_inicial': None,
+                'valor_actual': None,
+                
+                # Propiedades
+                'es_variable': True,
+                'es_constante': False,
+                'modificable': True,
+                'visibilidad': 'privado' if self.current_scope != 'global' else 'publico',
+                
+                # Metadatos extra para evitar errores de clave
+                'es_funcion': False,
+                'es_tipo_usuario': False,
+                'categoria_semantica': 'VARIABLE'
+            }
+            
+            self.symbol_table.add_symbol(new_symbol_data)
+            symbol = new_symbol_data
         
         # Asignación opcional
         if self.expect('OPERATOR', '='):
@@ -538,15 +754,36 @@ class Parser:
         
         # Procesar sentencias dentro del bloque
         while self.current_token() and self.current_token()[2] != '}':
-            declaracion_node = self.declaracion()
-            if declaracion_node:
-                node.agregar_hijo(declaracion_node)
-            else:
-                sentencia_node = self.sentencia_control()
-                if sentencia_node:
-                    node.agregar_hijo(sentencia_node)
-                else:
-                    self.next_token()
+                    declaracion_node = self.declaracion()
+                    if declaracion_node:
+                        node.agregar_hijo(declaracion_node)
+                        continue # Importante saltar al siguiente ciclo
+
+                    # Verificar si es retorno
+                    if self.current_token()[2] == 'give_back':
+                        ret_node = self.sentencia_retorno()
+                        if ret_node:
+                            node.agregar_hijo(ret_node)
+                        continue
+
+                    # Verificar si es estructura de control (If, y ahora llamadas sueltas)
+                    sentencia_node = self.sentencia_control()
+                    if sentencia_node:
+                        node.agregar_hijo(sentencia_node)
+                    else:
+                        # Si no reconocemos nada, avanzamos para evitar bucle infinito
+                        self.error(f"Sentencia no reconocida: {self.current_token()[2]}")
+                        self.next_token()
+        # while self.current_token() and self.current_token()[2] != '}':
+        #     declaracion_node = self.declaracion()
+        #     if declaracion_node:
+        #         node.agregar_hijo(declaracion_node)
+        #     else:
+        #         sentencia_node = self.sentencia_control()
+        #         if sentencia_node:
+        #             node.agregar_hijo(sentencia_node)
+        #         else:
+        #             self.next_token()
         
         if not self.expect('DELIMITER', '}'):
             self.error("Se esperaba '}'")

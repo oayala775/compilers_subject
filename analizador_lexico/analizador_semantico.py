@@ -133,6 +133,54 @@ class SemanticAnalyzer:
                 # Marcar como inicializada si la asignación es compatible
                 self.initialized_vars.add(var_key)
     
+    def _analyze_DECLARACION_FUNCION(self, node):
+            """Análisis semántico de declaración de función"""
+            if len(node.hijos) < 3: return
+
+            # 1. Obtener datos básicos
+            id_node = node.hijos[0]
+            func_name = id_node.valor
+            
+            # Buscar el nodo de retorno (puede variar posición dependiendo de params)
+            # Asumimos estructura fija: ID, PARAMETROS, TIPO_RETORNO, BLOQUE
+            return_type_node = node.hijos[2]
+            block_node = node.hijos[3]
+            
+            expected_type = return_type_node.valor
+
+            # 2. Manejo de Scope
+            # El parser ya creó los símbolos en el scope correcto, pero el analizador
+            # semántico necesita actualizar su puntero 'current_scope' para analizar el bloque
+            old_scope = self.current_scope
+            func_scope = f"func_{func_name}"
+            self._enter_scope(func_scope)
+            
+            # Apilamos el tipo de retorno esperado para validar los 'give_back' dentro
+            self.function_return_stack.append(expected_type)
+
+            # 3. Analizar el bloque de la función
+            self._analyze_node(block_node)
+
+            # 4. Limpieza
+            self.function_return_stack.pop()
+            self._exit_scope(old_scope)
+
+    def _analyze_SENTENCIA_RETORNO(self, node):
+        """Valida que el tipo de retorno coincida con la función"""
+        if not node.hijos: return
+        
+        # Analizar la expresión a devolver
+        expr_type = self._analyze_node(node.hijos[0])
+        
+        if not self.function_return_stack:
+            self.errors.append(f"Error semántico línea {node.linea}: 'give_back' fuera de una función")
+            return
+
+        expected_type = self.function_return_stack[-1]
+        
+        if expr_type and not self._check_type_compatibility(expected_type, expr_type):
+             self.errors.append(f"Error de tipo línea {node.linea}: La función espera devolver '{expected_type}' pero se devuelve '{expr_type}'")
+    
     def _analyze_DECLARACION_CONSTANTE(self, node):
         """Análisis de declaración de constante"""
         if not node.hijos:
@@ -500,8 +548,13 @@ class CodeOptimizer:
             if (child.tipo == 'DECLARACION_VARIABLE' and 
                 len(child.hijos) > 0 and
                 child.hijos[0].tipo == 'IDENTIFICADOR'):
+                
                 var_name = child.hijos[0].valor
-                if not self._is_variable_used(var_name, node):
+                # Buscamos en todo el nodo padre (scope actual)
+                usage_count = self._count_variable_usage(var_name, node)
+                
+                # Si solo aparece 1 vez (su propia declaración), se borra
+                if usage_count <= 1:
                     self.optimizations_applied.append(f"Eliminada variable no usada: {var_name}")
                     continue
             
@@ -509,17 +562,17 @@ class CodeOptimizer:
             new_children.append(child)
         
         node.hijos = new_children
-    
-    def _is_variable_used(self, var_name, node):
-        """Verifica si una variable se usa en el árbol"""
+
+    def _count_variable_usage(self, var_name, node):
+        """Cuenta cuántas veces se usa una variable en el árbol"""
+        count = 0
         if node.tipo == 'IDENTIFICADOR' and node.valor == var_name:
-            return True
+            count = 1
         
         for child in node.hijos:
-            if self._is_variable_used(var_name, child):
-                return True
+            count += self._count_variable_usage(var_name, child)
         
-        return False
+        return count
     
     def _analyze_scope_usage(self, ast, symbol_table):
         """Analiza el uso de variables por ámbito para visualización"""
